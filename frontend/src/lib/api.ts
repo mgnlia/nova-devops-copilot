@@ -3,6 +3,7 @@
  *
  * NEXT_PUBLIC_API_URL must point to the deployed backend (Railway).
  * Routes match backend main.py exactly — no /api/ prefix.
+ * Types match backend agent field names exactly.
  */
 
 export const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
@@ -10,9 +11,8 @@ export const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "
 /** True only when the env var is explicitly set to a non-empty string. */
 export const API_CONFIGURED = API_BASE.length > 0;
 
-// ─── Types — aligned to backend response shapes ───────────────────────────────
+// ─── Types — aligned to backend agent response shapes ─────────────────────────
 
-export type Severity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
 export type PipelineMode = "live" | "mock";
 
 /** A single infrastructure event from MonitorAgent */
@@ -20,24 +20,31 @@ export interface Event {
   id: string;
   source: string;
   severity: string;
-  title: string;
-  description: string;
+  service: string;
+  metric: string;
+  value: number;
+  threshold: number;
+  region: string;
+  resource: string;
+  message: string;
   timestamp: string;
-  metadata?: Record<string, unknown>;
 }
 
-/** ReasonAgent analysis of one event */
+/** ReasonAgent analysis of one event — matches reason.py response */
 export interface Analysis {
   event_id: string;
   root_cause: string;
-  confidence_score: number;
-  reasoning_chain: string[];
+  confidence: number;           // 0.0–1.0 (NOT confidence_score)
+  impact: string;
+  reasoning_steps: string[];    // array of step strings (NOT reasoning_chain)
   recommended_action: "auto_fix" | "escalate" | "monitor";
-  estimated_resolution_time?: string;
-  model?: string;
+  fix_description: string;
+  related_services: string[];
+  estimated_resolution_time: string;
+  model: string;
 }
 
-/** One result entry inside a pipeline run */
+/** One result entry inside a pipeline run — matches main.py run_pipeline() */
 export interface PipelineResultEntry {
   event: Event;
   analysis: Analysis;
@@ -57,7 +64,7 @@ export interface PipelineRun {
   results: PipelineResultEntry[];
 }
 
-/** /dashboard/summary response */
+/** /dashboard/summary response — matches main.py dashboard_summary() */
 export interface DashboardData {
   total_events: number;
   severity_breakdown: Record<string, number>;
@@ -69,17 +76,17 @@ export interface DashboardData {
   mode: PipelineMode;
 }
 
-/** Escalation entry from EscalateAgent */
+/** Escalation record from EscalateAgent — matches escalate.py */
 export interface Escalation {
-  escalation_id: string;
+  escalation_id: string;        // "esc-alarm-001" etc
   event_id: string;
   event: Event;
   analysis: Analysis;
-  status: "pending" | "approved" | "rejected" | "deferred";
+  status: "pending" | "resolved";
   created_at: string;
-  resolved_at?: string;
-  resolved_by?: string;
-  resolution?: string;
+  resolved_at: string | null;
+  resolution: string | null;
+  resolved_by: string | null;
 }
 
 export interface HealthData {
@@ -87,7 +94,7 @@ export interface HealthData {
   timestamp: string;
 }
 
-// Legacy aliases for components that import the old names
+// Legacy type aliases — keep for components that import old names
 /** @deprecated Use DashboardData */
 export type DashboardSummary = DashboardData;
 /** @deprecated Use PipelineRun */
