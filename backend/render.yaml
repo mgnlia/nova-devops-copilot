@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: nova-devops-copilot-backend
+    runtime: python
+    buildCommand: pip install fastapi uvicorn boto3 pydantic python-dotenv httpx
+    startCommand: uvicorn src.api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DEMO_MODE
+        value: "false"
+      - key: AWS_REGION
+        value: us-east-1
+      - key: NOVA_MODEL_ID
+        value: us.amazon.nova-pro-v1:0
+      # Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in Render dashboard

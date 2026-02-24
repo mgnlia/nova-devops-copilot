@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: nova-devops-copilot-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: USE_MOCK
+        value: "false"
+      - key: AWS_REGION
+        value: us-east-1
+      - key: NOVA_MODEL_ID
+        value: amazon.nova-pro-v1:0
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false

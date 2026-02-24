@@ -10,7 +10,7 @@
 
 ## ✨ What It Does
 
-Nova DevOps Copilot ingests live AWS infrastructure events (CloudWatch alarms, Cost Explorer anomalies, Security Hub findings) and runs them through a 4-agent AI pipeline:
+Nova DevOps Copilot ingests AWS infrastructure events (CloudWatch alarms, Cost Explorer anomalies, Security Hub findings) and runs them through a 4-agent AI pipeline:
 
 ```
 CloudWatch / Cost Explorer / Security Hub
@@ -39,7 +39,7 @@ Traditional DevOps alerting drowns on-call engineers in noise. Nova DevOps Copil
 │                    Next.js 14 Frontend                   │
 │              (Vercel · TypeScript · Tailwind)            │
 │                                                          │
-│  Dashboard · Agent Pipeline · Event Cards · HITL Queue  │
+│  AgentPipeline · EventCards · StatCards · HITL Queue     │
 └───────────────────────┬─────────────────────────────────┘
                         │ REST API
 ┌───────────────────────▼─────────────────────────────────┐
@@ -57,6 +57,30 @@ Traditional DevOps alerting drowns on-call engineers in noise. Nova DevOps Copil
 
 ---
 
+## 🖥️ Frontend UI
+
+The dashboard is a single-page Next.js 14 app with two main views:
+
+### Header
+- **Nova DevOps Copilot** branding with API status indicator (green = online, red = offline)
+- Live/mock mode badge showing the active model (`amazon.nova-pro-v1:0`)
+- **Run Pipeline** button — triggers the full 4-agent pipeline
+
+### Agent Pipeline Visualization
+A horizontal strip showing all 4 agents (Monitor → Reason → Act → Escalate) with animated highlighting as each agent runs during pipeline execution.
+
+### Stat Cards
+Four summary cards: **Total Events**, **Critical** count, **Pending Escalations**, and **Pipeline Runs** (with last-run timestamp).
+
+### Error Banner
+When the backend is unreachable or the pipeline fails, a red error banner renders prominently below the stat cards with the specific error message.
+
+### Tab Bar — Pipeline Results / Escalations
+- **Pipeline Results tab**: After clicking Run Pipeline, displays EventCards for each processed event. Each card shows severity badge, source icon (CloudWatch/Cost Explorer/Security Hub), action badge (Auto-fixed/Escalated/Monitoring), and the event message. Expanding a card reveals Nova Pro's root-cause analysis, a confidence bar (0–100%), the full reasoning chain, impact/remediation details, and execution logs for auto-fixed events.
+- **Escalations tab**: Shows the EscalationQueue — pending events that need human review. Each escalation has **Approve**, **Reject**, and **Defer** buttons. Resolving an escalation updates the queue in real-time.
+
+---
+
 ## 🤖 The 4 Agents
 
 ### 🔍 MonitorAgent
@@ -67,7 +91,7 @@ Ingests events from three AWS sources:
 
 ### 🧠 ReasonAgent *(Amazon Nova Pro)*
 For each event, calls `amazon.nova-pro-v1:0` via the Bedrock Converse API with a structured system prompt. Returns:
-- Root cause (1-2 sentences)
+- Root cause (1–2 sentences)
 - Confidence score (0.0–1.0)
 - Reasoning chain (step-by-step)
 - Recommended action: `auto_fix` | `escalate` | `monitor`
@@ -134,7 +158,7 @@ Open: http://localhost:3000
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | Service info + mode |
+| `/` | GET | Service info + mode (live/mock) |
 | `/health` | GET | Health check |
 | `/events` | GET | Current infrastructure events |
 | `/pipeline/run` | POST | Run full 4-agent pipeline |

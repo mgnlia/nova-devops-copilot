@@ -29,7 +29,7 @@ export default function EscalationQueue({ escalations, onResolved }: Props) {
     return (
       <div className="text-center py-10 text-slate-500">
         <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-500/40" />
-        <p className="text-sm">No pending escalations</p>
+        <p className="text-sm">No pending escalations — run the pipeline to generate events</p>
       </div>
     );
   }
@@ -48,12 +48,26 @@ export default function EscalationQueue({ escalations, onResolved }: Props) {
               </div>
               <p className="text-sm text-slate-200">{esc.event.message}</p>
               <p className="text-xs text-slate-400 mt-1">{esc.analysis?.root_cause}</p>
-              <p className="text-xs text-slate-500 mt-0.5 font-mono">ID: {esc.escalation_id}</p>
+              {esc.analysis?.confidence !== undefined && (
+                <div className="mt-2">
+                  <div className="flex justify-between text-xs text-slate-500 mb-1">
+                    <span>Confidence</span>
+                    <span className="font-mono">{Math.round(esc.analysis.confidence * 100)}%</span>
+                  </div>
+                  <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-orange-400 rounded-full"
+                      style={{ width: `${Math.round(esc.analysis.confidence * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-slate-500 mt-1.5 font-mono">ID: {esc.escalation_id}</p>
             </div>
             <div className="flex gap-2 flex-shrink-0">
               {resolving === esc.escalation_id ? (
                 <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-              ) : (
+              ) : esc.status === "pending" ? (
                 <>
                   <button
                     onClick={() => resolve(esc.escalation_id, "approved")}
@@ -74,6 +88,10 @@ export default function EscalationQueue({ escalations, onResolved }: Props) {
                     <Clock className="w-3.5 h-3.5" /> Defer
                   </button>
                 </>
+              ) : (
+                <span className="text-xs px-3 py-1.5 rounded-lg bg-slate-700/50 text-slate-400 border border-slate-600 font-medium capitalize">
+                  {esc.status}
+                </span>
               )}
             </div>
           </div>

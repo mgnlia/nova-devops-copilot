@@ -7,8 +7,8 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Nova DevOps Copilot — Amazon Nova AI Hackathon",
   description:
-    "4-agent DevOps pipeline assistant powered by Amazon Nova via AWS Bedrock. Planner → Coder → Reviewer → Explainer.",
-  keywords: ["DevOps", "Amazon Nova", "AWS Bedrock", "AI", "Terraform", "CI/CD"],
+    "4-agent DevOps pipeline powered by Amazon Nova Pro via AWS Bedrock. Monitor → Reason → Act → Escalate.",
+  keywords: ["DevOps", "Amazon Nova", "AWS Bedrock", "AI", "Infrastructure", "SRE"],
 };
 
 export default function RootLayout({

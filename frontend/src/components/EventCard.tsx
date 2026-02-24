@@ -57,6 +57,9 @@ export default function EventCard({ result }: { result: PipelineResultEntry }) {
           <div>
             <p className="text-xs font-semibold text-purple-400 uppercase tracking-wide mb-1">🧠 Nova Pro Root Cause</p>
             <p className="text-sm text-slate-200">{analysis.root_cause}</p>
+            {analysis.model && (
+              <p className="text-[10px] text-slate-600 mt-1 font-mono">{analysis.model}</p>
+            )}
           </div>
 
           <div>

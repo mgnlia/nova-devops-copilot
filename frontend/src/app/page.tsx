@@ -29,8 +29,14 @@ export default function Home() {
       setSummary(s);
       setEscalations(e.escalations);
       setApiOnline(true);
-    } catch {
+      setError(null);
+    } catch (err) {
       setApiOnline(false);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to connect to backend API. Please check that the server is running."
+      );
     }
   }, []);
 
@@ -52,8 +58,12 @@ export default function Home() {
       const run = await api.runPipeline();
       setLatestRun(run);
       await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Pipeline failed");
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Pipeline execution failed — backend may be offline.";
+      setError(message);
     } finally {
       setRunning(false);
       setActiveAgent(undefined);
@@ -76,11 +86,11 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5 text-xs">
               <div className={`w-2 h-2 rounded-full ${apiOnline === true ? "bg-green-400" : apiOnline === false ? "bg-red-400" : "bg-yellow-400 animate-pulse"}`} />
-              <span className="text-slate-400">{apiOnline === true ? "API online" : apiOnline === false ? "API offline (mock mode)" : "Connecting…"}</span>
+              <span className="text-slate-400">{apiOnline === true ? "API online" : apiOnline === false ? "API offline" : "Connecting…"}</span>
             </div>
             {summary && (
               <span className="text-xs text-slate-500 font-mono hidden sm:inline">
-                {summary.mode === "mock" ? "🎭 mock" : "🔴 live"} · {summary.model}
+                {summary.mode === "mock" ? "🎭 mock" : "🟢 live"} · {summary.model}
               </span>
             )}
             <button
@@ -114,8 +124,12 @@ export default function Home() {
         )}
 
         {error && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400">
-            ⚠️ {error}
+          <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-semibold">Error</p>
+              <p className="mt-0.5">{error}</p>
+            </div>
           </div>
         )}
 
@@ -149,7 +163,7 @@ export default function Home() {
                 <p className="text-xs text-slate-500 mt-1 capitalize">{activeAgent} agent active</p>
               </div>
             )}
-            {!running && !latestRun && (
+            {!running && !latestRun && !error && (
               <div className="text-center py-12 text-slate-500">
                 <Zap className="w-8 h-8 mx-auto mb-3 text-slate-600" />
                 <p className="text-sm">Click <strong className="text-slate-400">Run Pipeline</strong> to analyze your infrastructure</p>

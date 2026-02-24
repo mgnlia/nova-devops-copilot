@@ -23,11 +23,9 @@ export interface Analysis {
   fix_description: string;
   related_services: string[];
   estimated_resolution_time: string;
-  event_id?: string;
-  model?: string;
 }
 
-export interface PipelineResultEntry {
+export interface PipelineResult {
   event: InfraEvent;
   analysis: Analysis;
   action_taken: string;
@@ -35,8 +33,8 @@ export interface PipelineResultEntry {
   escalation: Record<string, unknown> | null;
 }
 
-// Keep PipelineResult as alias for backward compat
-export type PipelineResult = PipelineResultEntry;
+/** Alias used by EventCard component */
+export type PipelineResultEntry = PipelineResult;
 
 export interface PipelineRun {
   run_id: string;
@@ -45,7 +43,7 @@ export interface PipelineRun {
   events_processed: number;
   auto_fixed: number;
   escalated: number;
-  results: PipelineResultEntry[];
+  results: PipelineResult[];
 }
 
 export interface DashboardSummary {
@@ -59,10 +57,6 @@ export interface DashboardSummary {
   mode: string;
 }
 
-/**
- * Escalation record — matches backend EscalateAgent output.
- * Backend returns `escalation_id` as the primary key.
- */
 export interface Escalation {
   escalation_id: string;
   event_id: string;
@@ -74,14 +68,6 @@ export interface Escalation {
   resolved_by: string | null;
   resolution: string | null;
 }
-
-/**
- * Pipeline execution mode — controls whether real AWS Bedrock is called.
- * live     = real Nova Pro + real AWS APIs
- * sandbox  = real Nova Pro reasoning + pre-seeded signals
- * demo     = deterministic fallback, no Bedrock call
- */
-export type PipelineMode = "live" | "sandbox" | "demo";
 
 /**
  * Fetch with a configurable timeout. Throws a user-friendly error if the
@@ -132,6 +118,3 @@ export const api = {
     }),
   health: () => apiFetch<{ ok: boolean }>("/health"),
 };
-
-// Legacy export for backward compat
-export const runPipelineWithFallback = api.runPipeline;
