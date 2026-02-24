@@ -66,6 +66,14 @@ export interface Escalation {
 }
 
 /**
+ * Pipeline execution mode — controls whether real AWS Bedrock is called.
+ * live     = real Nova Pro + real AWS APIs
+ * sandbox  = real Nova Pro reasoning + pre-seeded signals
+ * demo     = deterministic fallback, no Bedrock call
+ */
+export type PipelineMode = "live" | "sandbox" | "demo";
+
+/**
  * Legacy Incident type — used by IncidentCard component (HITL pipeline v1).
  * Kept for backward compatibility; new code should use Escalation instead.
  */
