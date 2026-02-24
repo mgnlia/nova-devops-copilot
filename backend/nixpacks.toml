@@ -2,7 +2,7 @@
 nixPkgs = ["python311"]
 
 [phases.install]
-cmds = ["pip install uv", "uv pip install --system -r requirements.txt"]
+cmds = ["pip install uv", "uv pip install --system -e ."]
 
 [start]
-cmd = "uvicorn src.api:app --host 0.0.0.0 --port $PORT"
+cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT"
