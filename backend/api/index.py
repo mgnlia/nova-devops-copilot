@@ -1,4 +1,8 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from mangum import Mangum
-from main import app  # noqa
+from main import app  # noqa: F401
 
 handler = Mangum(app, lifespan="off")
