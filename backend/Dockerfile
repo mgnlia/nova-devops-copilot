@@ -7,14 +7,11 @@ RUN pip install uv
 
 # Copy project files
 COPY pyproject.toml .
-COPY requirements.txt .
-COPY main.py .
-COPY agents/ ./agents/
-COPY api/ ./api/
+COPY app/ ./app/
 
 # Install dependencies
-RUN uv pip install --system -r requirements.txt
+RUN uv pip install --system -e .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
