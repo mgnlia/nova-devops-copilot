@@ -6,7 +6,7 @@ import SeverityBadge from "./SeverityBadge";
 import type { PipelineResult } from "@/lib/api";
 
 const sourceIcon = (source: string) => {
-  if (source === "cloudwatch")   return <Activity className="w-4 h-4 text-blue-400" />;
+  if (source === "cloudwatch")    return <Activity className="w-4 h-4 text-blue-400" />;
   if (source === "cost_explorer") return <DollarSign className="w-4 h-4 text-green-400" />;
   if (source === "security_hub")  return <Shield className="w-4 h-4 text-orange-400" />;
   return <Server className="w-4 h-4 text-slate-400" />;
@@ -23,8 +23,15 @@ export default function EventCard({ result }: { result: PipelineResult }) {
   const { event, analysis } = result;
   const conf = Math.round((analysis?.confidence ?? 0) * 100);
 
+  const severityBorder: Record<string, string> = {
+    critical: "border-red-500/30 bg-red-500/5",
+    high:     "border-orange-500/30 bg-orange-500/5",
+    medium:   "border-yellow-500/30 bg-yellow-500/5",
+    low:      "border-green-500/30 bg-green-500/5",
+  };
+
   return (
-    <div className={`border rounded-xl overflow-hidden fade-in bg-sev-${event.severity}`}>
+    <div className={`border rounded-xl overflow-hidden fade-in ${severityBorder[event.severity] ?? "border-slate-700"}`}>
       <button
         onClick={() => setOpen(v => !v)}
         className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-white/5 transition-colors"
@@ -46,13 +53,11 @@ export default function EventCard({ result }: { result: PipelineResult }) {
 
       {open && analysis && (
         <div className="border-t border-white/10 px-4 py-4 space-y-4 bg-slate-900/60">
-          {/* Root cause */}
           <div>
             <p className="text-xs font-semibold text-purple-400 uppercase tracking-wide mb-1">🧠 Nova Pro Root Cause</p>
             <p className="text-sm text-slate-200">{analysis.root_cause}</p>
           </div>
 
-          {/* Confidence bar */}
           <div>
             <div className="flex justify-between text-xs text-slate-400 mb-1">
               <span>Confidence</span>
@@ -66,7 +71,6 @@ export default function EventCard({ result }: { result: PipelineResult }) {
             </div>
           </div>
 
-          {/* Reasoning steps */}
           <div>
             <p className="text-xs font-semibold text-blue-400 uppercase tracking-wide mb-2">Reasoning Chain</p>
             <ol className="space-y-1">
@@ -79,7 +83,6 @@ export default function EventCard({ result }: { result: PipelineResult }) {
             </ol>
           </div>
 
-          {/* Impact + Fix */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="bg-slate-800/60 rounded-lg p-3">
               <p className="text-xs font-semibold text-orange-400 mb-1">Impact</p>
@@ -91,7 +94,6 @@ export default function EventCard({ result }: { result: PipelineResult }) {
             </div>
           </div>
 
-          {/* Execution / Escalation result */}
           {result.execution && (
             <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
               <p className="text-xs font-semibold text-green-400 mb-1">⚡ Auto-fix executed</p>
