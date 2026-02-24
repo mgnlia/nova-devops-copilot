@@ -1,398 +1,95 @@
-import { AgentName, AgentResult, PipelineResponse } from "@/types";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  "https://nova-devops-copilot-backend.up.railway.app";
+export interface InfraEvent {
+  id: string;
+  source: "cloudwatch" | "cost_explorer" | "security_hub";
+  severity: "critical" | "high" | "medium" | "low";
+  service: string;
+  metric: string;
+  value: number;
+  threshold: number;
+  region: string;
+  resource: string;
+  message: string;
+  timestamp: string;
+}
 
-export async function runPipeline(request: string): Promise<PipelineResponse> {
-  const res = await fetch(`${API_URL}/pipeline`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ request }),
+export interface Analysis {
+  root_cause: string;
+  confidence: number;
+  impact: string;
+  reasoning_steps: string[];
+  recommended_action: "auto_fix" | "escalate" | "monitor";
+  fix_description: string;
+  related_services: string[];
+  estimated_resolution_time: string;
+}
+
+export interface PipelineResult {
+  event: InfraEvent;
+  analysis: Analysis;
+  action_taken: string;
+  execution: Record<string, unknown> | null;
+  escalation: Record<string, unknown> | null;
+}
+
+export interface PipelineRun {
+  run_id: string;
+  started_at: string;
+  completed_at: string;
+  events_processed: number;
+  auto_fixed: number;
+  escalated: number;
+  results: PipelineResult[];
+}
+
+export interface DashboardSummary {
+  total_events: number;
+  severity_breakdown: Record<string, number>;
+  source_breakdown: Record<string, number>;
+  pending_escalations: number;
+  total_pipeline_runs: number;
+  last_run: string | null;
+  model: string;
+  mode: string;
+}
+
+export interface Escalation {
+  id: string;
+  event: InfraEvent;
+  analysis: Analysis;
+  status: "pending" | "approved" | "rejected" | "deferred";
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  resolution: string | null;
+}
+
+async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    ...opts,
+    headers: { "Content-Type": "application/json", ...opts?.headers },
   });
-
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`API error ${res.status}: ${err}`);
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail || `API error ${res.status}`);
   }
-
   return res.json();
 }
 
-export type StreamCallback = (
-  event: "agent_start" | "agent_done" | "pipeline_done" | "error",
-  data: {
-    agent?: AgentName;
-    message?: string;
-    output?: string;
-    mock?: boolean;
-    model?: string;
-  }
-) => void;
+export const api = {
+  summary: () => apiFetch<DashboardSummary>("/dashboard/summary"),
+  events: () => apiFetch<{ events: InfraEvent[]; count: number }>("/events"),
+  runPipeline: () => apiFetch<PipelineRun>("/pipeline/run", { method: "POST" }),
+  runs: () => apiFetch<{ runs: PipelineRun[]; count: number }>("/pipeline/runs"),
+  escalations: () => apiFetch<{ escalations: Escalation[]; count: number }>("/escalations"),
+  resolveEscalation: (id: string, resolution: string, resolved_by = "operator") =>
+    apiFetch(`/escalations/${id}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ resolution, resolved_by }),
+    }),
+  health: () => apiFetch<{ ok: boolean }>("/health"),
+};
 
-export async function streamPipeline(
-  request: string,
-  onEvent: StreamCallback,
-  signal?: AbortSignal
-): Promise<void> {
-  const res = await fetch(`${API_URL}/pipeline/stream`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ request }),
-    signal,
-  });
-
-  if (!res.ok) {
-    throw new Error(`API error ${res.status}`);
-  }
-
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n\n");
-    buffer = lines.pop() || "";
-
-    for (const chunk of lines) {
-      const eventMatch = chunk.match(/^event: (.+)$/m);
-      const dataMatch = chunk.match(/^data: (.+)$/m);
-
-      if (eventMatch && dataMatch) {
-        const eventType = eventMatch[1] as Parameters<StreamCallback>[0];
-        try {
-          const data = JSON.parse(dataMatch[1]);
-          onEvent(eventType, data);
-        } catch {
-          // ignore parse errors
-        }
-      }
-    }
-  }
-}
-
-// Fallback: run pipeline locally with mock data when backend is unreachable
-export async function runPipelineWithFallback(
-  request: string,
-  onEvent: StreamCallback
-): Promise<void> {
-  try {
-    await streamPipeline(request, onEvent);
-  } catch (err) {
-    console.warn("Backend unreachable, using client-side mock:", err);
-    await runMockPipeline(request, onEvent);
-  }
-}
-
-async function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function runMockPipeline(
-  request: string,
-  onEvent: StreamCallback
-): Promise<void> {
-  const req = request.toLowerCase();
-  const isECS = req.includes("ecs") || req.includes("container") || req.includes("docker");
-  const isLambda = req.includes("lambda") || req.includes("serverless");
-  const isK8s = req.includes("kubernetes") || req.includes("k8s") || req.includes("eks");
-
-  // PlannerAgent
-  onEvent("agent_start", { agent: "PlannerAgent", message: "Analyzing your DevOps request..." });
-  await delay(800);
-  onEvent("agent_done", {
-    agent: "PlannerAgent",
-    output: getPlannerMock(isECS, isLambda, isK8s),
-  });
-  await delay(300);
-
-  // CodeAgent
-  onEvent("agent_start", { agent: "CodeAgent", message: "Generating Terraform & CI/CD code..." });
-  await delay(1200);
-  onEvent("agent_done", {
-    agent: "CodeAgent",
-    output: getCoderMock(isECS, isLambda, isK8s),
-  });
-  await delay(300);
-
-  // ReviewAgent
-  onEvent("agent_start", { agent: "ReviewAgent", message: "Reviewing for security & best practices..." });
-  await delay(900);
-  onEvent("agent_done", {
-    agent: "ReviewAgent",
-    output: getReviewerMock(),
-  });
-  await delay(300);
-
-  // ExplainerAgent
-  onEvent("agent_start", { agent: "ExplainerAgent", message: "Writing plain-English explanation..." });
-  await delay(700);
-  onEvent("agent_done", {
-    agent: "ExplainerAgent",
-    output: getExplainerMock(),
-  });
-
-  onEvent("pipeline_done", { message: "Pipeline complete!", mock: true, model: "amazon.nova-pro-v1:0" });
-}
-
-function getPlannerMock(isECS: boolean, isLambda: boolean, isK8s: boolean): string {
-  if (isECS) return `## DevOps Pipeline Plan
-
-1. **Create ECR Repository** — Store your Docker image in Amazon's private container registry
-2. **Build & Push Docker Image** — Containerize your app and push to ECR
-3. **Define ECS Task Definition** — Specify CPU, memory, and container config (Fargate)
-4. **Create ECS Cluster & Service** — Launch your containers with desired count = 2
-5. **Configure Application Load Balancer** — Route HTTPS traffic to your containers
-6. **Set Up IAM Roles** — Least-privilege execution role for ECS tasks
-7. **Enable CloudWatch Logging** — Centralized logs for debugging and audit
-8. **Create GitHub Actions CI/CD** — Auto-deploy on every push to main
-
-> ✅ Plan generated by Nova PlannerAgent`;
-
-  if (isLambda) return `## DevOps Pipeline Plan
-
-1. **Package Application** — Bundle code into a deployment ZIP or container image
-2. **Create IAM Execution Role** — Minimal permissions for Lambda to access AWS services
-3. **Deploy Lambda Function** — Configure runtime, memory (512MB), and timeout (30s)
-4. **Configure API Gateway** — Create HTTP API endpoint to trigger your Lambda
-5. **Set Up SSM Parameter Store** — Store secrets and config without hardcoding
-6. **Enable X-Ray Tracing** — Distributed tracing for performance insights
-7. **Create GitHub Actions Workflow** — Auto-deploy Lambda on every merge to main
-
-> ✅ Plan generated by Nova PlannerAgent`;
-
-  return `## DevOps Pipeline Plan
-
-1. **Analyze Architecture** — Identify compute, storage, and networking requirements
-2. **Provision VPC & Networking** — Create VPC, subnets, security groups via Terraform
-3. **Configure IAM Roles & Policies** — Least-privilege access for all services
-4. **Deploy Application Infrastructure** — Compute, database, and cache layers
-5. **Set Up Load Balancing** — Distribute traffic with health checks
-6. **Configure Monitoring** — CloudWatch dashboards, alarms, and log groups
-7. **Create CI/CD Pipeline** — GitHub Actions for automated testing and deployment
-8. **Document Runbook** — Operational procedures for the team
-
-> ✅ Plan generated by Nova PlannerAgent`;
-}
-
-function getCoderMock(isECS: boolean, isLambda: boolean, isK8s: boolean): string {
-  return `## Generated Infrastructure Code
-
-### terraform/main.tf
-\`\`\`hcl
-terraform {
-  required_providers {
-    aws = { source = "hashicorp/aws", version = "~> 5.0" }
-  }
-  backend "s3" {
-    bucket         = "your-tfstate-bucket"
-    key            = "prod/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "terraform-locks"
-    encrypt        = true
-  }
-}
-
-provider "aws" {
-  region = var.aws_region
-}
-
-# ECR Repository
-resource "aws_ecr_repository" "app" {
-  name                 = var.app_name
-  image_tag_mutability = "IMMUTABLE"
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-}
-
-# ECS Cluster
-resource "aws_ecs_cluster" "main" {
-  name = "\${var.app_name}-cluster"
-  setting {
-    name  = "containerInsights"
-    value = "enabled"
-  }
-}
-
-# ECS Task Definition
-resource "aws_ecs_task_definition" "app" {
-  family                   = var.app_name
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  cpu                      = "256"
-  memory                   = "512"
-  execution_role_arn       = aws_iam_role.ecs_execution.arn
-  container_definitions = jsonencode([{
-    name  = var.app_name
-    image = "\${aws_ecr_repository.app.repository_url}:latest"
-    portMappings = [{ containerPort = 80, protocol = "tcp" }]
-    readonlyRootFilesystem = true
-    logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        "awslogs-group"         = "/ecs/\${var.app_name}"
-        "awslogs-region"        = var.aws_region
-        "awslogs-stream-prefix" = "ecs"
-      }
-    }
-  }])
-}
-
-# ECS Service
-resource "aws_ecs_service" "app" {
-  name            = "\${var.app_name}-service"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = 2
-  launch_type     = "FARGATE"
-  network_configuration {
-    subnets          = var.subnet_ids
-    security_groups  = [aws_security_group.ecs.id]
-    assign_public_ip = false
-  }
-  load_balancer {
-    target_group_arn = aws_lb_target_group.app.arn
-    container_name   = var.app_name
-    container_port   = 80
-  }
-}
-\`\`\`
-
-### .github/workflows/deploy.yml
-\`\`\`yaml
-name: Deploy to ECS
-
-on:
-  push:
-    branches: [main]
-
-env:
-  AWS_REGION: us-east-1
-  ECR_REPOSITORY: \${{ secrets.ECR_REPOSITORY }}
-  ECS_SERVICE: \${{ secrets.ECS_SERVICE }}
-  ECS_CLUSTER: \${{ secrets.ECS_CLUSTER }}
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: \${{ secrets.AWS_ROLE_ARN }}
-          aws-region: \${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build, tag, and push image
-        run: |
-          IMAGE_TAG=\${{ github.sha }}
-          docker build -t \$ECR_REPOSITORY:\$IMAGE_TAG .
-          docker push \$ECR_REPOSITORY:\$IMAGE_TAG
-
-      - name: Deploy to ECS
-        run: |
-          aws ecs update-service \\
-            --cluster \$ECS_CLUSTER \\
-            --service \$ECS_SERVICE \\
-            --force-new-deployment
-\`\`\`
-
-> ✅ Code generated by Nova CodeAgent`;
-}
-
-function getReviewerMock(): string {
-  return `## Security & Best Practices Review
-
-### ✅ Passed Checks
-- **No hardcoded credentials** — All secrets via GitHub OIDC and SSM
-- **Least-privilege IAM** — Task execution role scoped to required actions only
-- **Image scanning enabled** — ECR scans on every push
-- **IMMUTABLE image tags** — Prevents tag overwriting in production
-- **CloudWatch logging** — Full audit trail for all container output
-- **Private subnets** — Containers not directly exposed to the internet
-
-### ⚠️ Recommendations
-
-1. **Add container resource limits** to prevent noisy-neighbor issues:
-   \`\`\`hcl
-   cpu    = 256
-   memory = 512
-   \`\`\`
-
-2. **Enable VPC endpoints** for ECR/S3 to keep traffic off the public internet:
-   \`\`\`hcl
-   resource "aws_vpc_endpoint" "ecr_api" {
-     vpc_id            = module.vpc.vpc_id
-     service_name      = "com.amazonaws.\${var.region}.ecr.api"
-     vpc_endpoint_type = "Interface"
-   }
-   \`\`\`
-
-3. **Add deployment circuit breaker** to auto-rollback failed deployments:
-   \`\`\`hcl
-   deployment_circuit_breaker {
-     enable   = true
-     rollback = true
-   }
-   \`\`\`
-
-4. **Pin GitHub Actions** to full commit SHAs (not version tags) for supply chain security
-
-### 🔒 Security Score: 9/10
-
-> ✅ Review completed by Nova ReviewAgent`;
-}
-
-function getExplainerMock(): string {
-  return `## Plain-English Explanation
-
-### What This Pipeline Does
-
-Think of this like setting up a fully automated assembly line for your software.
-
-**🗺️ The Plan** breaks your goal into concrete steps — like a recipe before you start cooking. Each step builds on the last, so nothing breaks because something wasn't set up first.
-
-**⚙️ The Code** does two things:
-- **Terraform** is like a blueprint for your AWS infrastructure. Instead of clicking around in the AWS console, you describe what you want in code, and Terraform builds it for you — and can rebuild it identically in any environment.
-- **GitHub Actions** is your robot deployment assistant. Every time you push code to your \`main\` branch, it automatically builds your Docker container, uploads it to AWS, and updates your running service. Zero manual steps.
-
-**🔒 The Review** caught some important things:
-- Your containers run in private subnets (not directly exposed to the internet) ✅
-- Image tags are immutable — you can't accidentally overwrite a production image ✅
-- A deployment circuit breaker means if something goes wrong, it automatically rolls back ✅
-
-**📖 The Big Picture**
-
-Here's what happens every time your team ships code:
-
-\`\`\`
-Developer pushes to main
-    ↓
-GitHub Actions runs tests
-    ↓
-Docker image built & pushed to ECR (tagged with commit SHA)
-    ↓
-ECS pulls new image, does rolling update (zero downtime)
-    ↓
-CloudWatch monitors health & alerts on errors
-    ↓
-If something breaks → auto-rollback to previous version
-\`\`\`
-
-**No SSH. No manual deploys. No "it works on my machine."** Your infrastructure is version-controlled, reproducible, and auditable.
-
-> ✅ Explanation by Nova ExplainerAgent`;
-}
+// Legacy export for backward compat
+export const runPipelineWithFallback = api.runPipeline;
