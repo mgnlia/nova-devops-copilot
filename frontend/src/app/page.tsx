@@ -1,278 +1,189 @@
 "use client";
 
-import React, { useState, useRef, useCallback } from "react";
-import { AgentResult, AgentName, AGENT_CONFIGS } from "@/types";
-import { runPipelineWithFallback } from "@/lib/api";
-import Header from "@/components/Header";
-import PipelineFlow from "@/components/PipelineFlow";
-import ExamplePrompts from "@/components/ExamplePrompts";
-import clsx from "clsx";
+import { useState, useEffect, useCallback } from "react";
+import {
+  Activity, AlertTriangle, Bell, Bot, CheckCircle2,
+  Cpu, Loader2, Play, RefreshCw, Zap,
+} from "lucide-react";
+import AgentPipeline from "@/components/AgentPipeline";
+import EventCard from "@/components/EventCard";
+import EscalationQueue from "@/components/EscalationQueue";
+import StatCard from "@/components/StatCard";
+import { api, type DashboardSummary, type PipelineRun, type Escalation } from "@/lib/api";
 
-type PipelineState = "idle" | "running" | "done" | "error";
+type Tab = "pipeline" | "escalations";
 
-export default function HomePage() {
-  const [input, setInput] = useState("");
-  const [pipelineState, setPipelineState] = useState<PipelineState>("idle");
-  const [activeAgent, setActiveAgent] = useState<string | null>(null);
-  const [results, setResults] = useState<Partial<Record<AgentName, AgentResult>>>({});
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [isMock, setIsMock] = useState(false);
-  const [lastRequest, setLastRequest] = useState("");
-  const abortRef = useRef<AbortController | null>(null);
-  const resultsRef = useRef<HTMLDivElement>(null);
+export default function Home() {
+  const [tab, setTab] = useState<Tab>("pipeline");
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [latestRun, setLatestRun] = useState<PipelineRun | null>(null);
+  const [escalations, setEscalations] = useState<Escalation[]>([]);
+  const [running, setRunning] = useState(false);
+  const [activeAgent, setActiveAgent] = useState<string | undefined>();
+  const [error, setError] = useState<string | null>(null);
+  const [apiOnline, setApiOnline] = useState<boolean | null>(null);
 
-  const handleSubmit = useCallback(async (requestText?: string) => {
-    const req = (requestText ?? input).trim();
-    if (!req || pipelineState === "running") return;
+  const refresh = useCallback(async () => {
+    try {
+      const [s, e] = await Promise.all([api.summary(), api.escalations()]);
+      setSummary(s);
+      setEscalations(e.escalations);
+      setApiOnline(true);
+    } catch {
+      setApiOnline(false);
+    }
+  }, []);
 
-    // Reset state
-    setResults({});
-    setActiveAgent(null);
-    setErrorMsg(null);
-    setIsMock(false);
-    setLastRequest(req);
-    setPipelineState("running");
+  useEffect(() => { refresh(); }, [refresh]);
 
-    // Abort any previous request
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
+  const runPipeline = useCallback(async () => {
+    if (running) return;
+    setRunning(true);
+    setError(null);
+    setLatestRun(null);
 
-    // Scroll to results
-    setTimeout(() => {
-      resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 100);
+    const agents = ["monitor", "reason", "act", "escalate"];
+    for (const agent of agents) {
+      setActiveAgent(agent);
+      await new Promise(r => setTimeout(r, 600));
+    }
 
     try {
-      await runPipelineWithFallback(req, (event, data) => {
-        if (event === "agent_start") {
-          const agentName = data.agent as AgentName;
-          setActiveAgent(agentName);
-          setResults((prev) => ({
-            ...prev,
-            [agentName]: {
-              agent: agentName,
-              output: data.message || "Processing...",
-              status: "running",
-            },
-          }));
-        } else if (event === "agent_done") {
-          const agentName = data.agent as AgentName;
-          setResults((prev) => ({
-            ...prev,
-            [agentName]: {
-              agent: agentName,
-              output: data.output || "",
-              status: "done",
-            },
-          }));
-        } else if (event === "pipeline_done") {
-          setActiveAgent(null);
-          setPipelineState("done");
-          setIsMock(data.mock ?? false);
-        } else if (event === "error") {
-          setErrorMsg(data.message || "An error occurred");
-          setPipelineState("error");
-        }
-      });
-    } catch (err: any) {
-      if (err?.name !== "AbortError") {
-        setErrorMsg(err?.message || "Failed to connect to backend");
-        setPipelineState("error");
-      }
+      const run = await api.runPipeline();
+      setLatestRun(run);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Pipeline failed");
+    } finally {
+      setRunning(false);
+      setActiveAgent(undefined);
     }
-  }, [input, pipelineState]);
-
-  const handleReset = () => {
-    abortRef.current?.abort();
-    setPipelineState("idle");
-    setResults({});
-    setActiveAgent(null);
-    setErrorMsg(null);
-    setInput("");
-  };
-
-  const handleExampleSelect = (prompt: string) => {
-    setInput(prompt);
-    handleSubmit(prompt);
-  };
-
-  const isRunning = pipelineState === "running";
-  const isDone = pipelineState === "done";
-  const hasResults = Object.keys(results).length > 0;
+  }, [running, refresh]);
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <Header />
-
-      <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-8">
-        {/* Hero */}
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-aws-orange/10 border border-aws-orange/20 mb-4">
-            <span className="text-aws-orange text-xs font-semibold">🏆 Amazon Nova AI Hackathon</span>
+    <div className="min-h-screen flex flex-col text-slate-100">
+      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-20">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
+              <Bot className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="font-bold text-white leading-none">Nova DevOps Copilot</h1>
+              <p className="text-xs text-slate-400 mt-0.5">Amazon Nova Pro · 4-Agent Pipeline · AWS Bedrock</p>
+            </div>
           </div>
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">
-            DevOps Copilot
-            <span className="text-aws-orange"> Powered by Nova</span>
-          </h2>
-          <p className="text-gray-400 text-base max-w-xl mx-auto">
-            Describe any DevOps task. Four AI agents — Planner, Coder, Reviewer, and Explainer —
-            collaborate to generate a production-ready pipeline.
-          </p>
-        </div>
-
-        {/* Agent Pipeline Visual */}
-        <div className="flex items-center justify-center gap-2 mb-8 flex-wrap">
-          {AGENT_CONFIGS.map((cfg, i) => (
-            <React.Fragment key={cfg.name}>
-              <div className={clsx(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition-all duration-300",
-                cfg.borderColor,
-                cfg.bgColor,
-                cfg.color,
-                activeAgent === cfg.name && "scale-110 shadow-lg",
-                results[cfg.name]?.status === "done" && "opacity-100",
-                !results[cfg.name] && activeAgent !== cfg.name && "opacity-40"
-              )}>
-                <span>{cfg.icon}</span>
-                <span>{cfg.name}</span>
-              </div>
-              {i < AGENT_CONFIGS.length - 1 && (
-                <span className="text-gray-600 text-xs">→</span>
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-
-        {/* Input */}
-        {!hasResults && (
-          <ExamplePrompts onSelect={handleExampleSelect} />
-        )}
-
-        <div className="relative mb-8">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                handleSubmit();
-              }
-            }}
-            placeholder="Describe your DevOps task... e.g. 'Deploy my Python API to AWS ECS with auto-scaling and a CI/CD pipeline'"
-            rows={3}
-            disabled={isRunning}
-            className={clsx(
-              "w-full px-4 py-3 pr-32 rounded-xl bg-white/5 border text-white placeholder-gray-500",
-              "focus:outline-none focus:ring-2 focus:ring-aws-orange/50 focus:border-aws-orange/50",
-              "resize-none transition-all duration-200",
-              isRunning ? "border-white/10 opacity-60" : "border-white/20 hover:border-white/30"
-            )}
-          />
-          <div className="absolute bottom-3 right-3 flex items-center gap-2">
-            {hasResults && !isRunning && (
-              <button
-                onClick={handleReset}
-                className="px-3 py-1.5 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-white/10 transition-all"
-              >
-                Reset
-              </button>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-xs">
+              <div className={`w-2 h-2 rounded-full ${apiOnline === true ? "bg-green-400" : apiOnline === false ? "bg-red-400" : "bg-yellow-400 animate-pulse"}`} />
+              <span className="text-slate-400">{apiOnline === true ? "API online" : apiOnline === false ? "API offline (mock mode)" : "Connecting…"}</span>
+            </div>
+            {summary && (
+              <span className="text-xs text-slate-500 font-mono hidden sm:inline">
+                {summary.mode === "mock" ? "🎭 mock" : "🔴 live"} · {summary.model}
+              </span>
             )}
             <button
-              onClick={() => handleSubmit()}
-              disabled={!input.trim() || isRunning}
-              className={clsx(
-                "px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200",
-                "flex items-center gap-2",
-                input.trim() && !isRunning
-                  ? "bg-aws-orange hover:bg-orange-500 text-white shadow-lg hover:shadow-aws-orange/30"
-                  : "bg-white/10 text-gray-500 cursor-not-allowed"
-              )}
+              onClick={runPipeline}
+              disabled={running}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors shadow-lg"
             >
-              {isRunning ? (
-                <>
-                  <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
-                  Running...
-                </>
+              {running ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Running…</>
               ) : (
-                <>
-                  <span>Run Pipeline</span>
-                  <span className="text-xs opacity-60">⌘↵</span>
-                </>
+                <><Play className="w-4 h-4" /> Run Pipeline</>
               )}
             </button>
           </div>
         </div>
+      </header>
 
-        {/* Error */}
-        {errorMsg && (
-          <div className="mb-6 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-            ⚠️ {errorMsg}
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 space-y-6">
+        <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-4">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Agent Pipeline</p>
+          <AgentPipeline activeAgent={activeAgent} running={running} />
+        </div>
+
+        {summary && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCard label="Total Events" value={summary.total_events} icon={Activity} color="text-blue-400" />
+            <StatCard label="Critical" value={summary.severity_breakdown.critical ?? 0} icon={AlertTriangle} color="text-red-400" />
+            <StatCard label="Pending Escalations" value={summary.pending_escalations} icon={Bell} color="text-orange-400" />
+            <StatCard label="Pipeline Runs" value={summary.total_pipeline_runs} icon={Cpu} color="text-purple-400" sub={summary.last_run ? `Last: ${new Date(summary.last_run).toLocaleTimeString()}` : undefined} />
           </div>
         )}
 
-        {/* Results */}
-        {hasResults && (
-          <div ref={resultsRef} className="animate-slide-up">
-            {/* Status bar */}
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-white">Pipeline Results</h3>
-                {isDone && isMock && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-400">
-                    mock mode
-                  </span>
-                )}
-                {isDone && !isMock && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-green-400">
-                    ✓ live Nova
-                  </span>
-                )}
-              </div>
-              {lastRequest && (
-                <p className="text-xs text-gray-500 truncate max-w-xs">
-                  "{lastRequest}"
-                </p>
-              )}
-            </div>
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400">
+            ⚠️ {error}
+          </div>
+        )}
 
-            <PipelineFlow results={results} activeAgent={activeAgent} />
+        <div className="flex gap-1 bg-slate-800/60 rounded-xl p-1 w-fit">
+          {(["pipeline", "escalations"] as Tab[]).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors capitalize ${
+                tab === t ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {t === "escalations" ? `Escalations${escalations.length > 0 ? ` (${escalations.length})` : ""}` : "Pipeline Results"}
+            </button>
+          ))}
+          <button
+            onClick={refresh}
+            className="ml-1 p-2 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-700 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
 
-            {isDone && (
-              <div className="mt-6 p-4 rounded-xl bg-aws-orange/5 border border-aws-orange/20 text-center animate-fade-in">
-                <p className="text-sm text-aws-orange font-medium mb-1">
-                  🎉 Pipeline complete!
-                </p>
-                <p className="text-xs text-gray-400">
-                  Generated by 4 Amazon Nova agents via AWS Bedrock
-                  {isMock && " (demo mode — connect AWS credentials for live AI)"}
-                </p>
-                <button
-                  onClick={handleReset}
-                  className="mt-3 px-4 py-1.5 rounded-lg text-xs font-medium bg-aws-orange/20 hover:bg-aws-orange/30 text-aws-orange transition-all"
-                >
-                  Try another request
-                </button>
+        {tab === "pipeline" && (
+          <div className="space-y-3">
+            {running && !latestRun && (
+              <div className="text-center py-12 text-slate-400">
+                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-blue-400" />
+                <p className="text-sm">Running 4-agent pipeline…</p>
+                <p className="text-xs text-slate-500 mt-1 capitalize">{activeAgent} agent active</p>
               </div>
+            )}
+            {!running && !latestRun && (
+              <div className="text-center py-12 text-slate-500">
+                <Zap className="w-8 h-8 mx-auto mb-3 text-slate-600" />
+                <p className="text-sm">Click <strong className="text-slate-400">Run Pipeline</strong> to analyze your infrastructure</p>
+                <p className="text-xs mt-1">Monitor → Reason (Nova Pro) → Act → Escalate</p>
+              </div>
+            )}
+            {latestRun && (
+              <>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <CheckCircle2 className="w-4 h-4 text-green-400" />
+                    Run <span className="font-mono text-slate-300">{latestRun.run_id}</span>
+                  </div>
+                  <span className="text-xs text-slate-500">{latestRun.events_processed} events · {latestRun.auto_fixed} auto-fixed · {latestRun.escalated} escalated</span>
+                </div>
+                {latestRun.results.map((result, i) => (
+                  <EventCard key={i} result={result} />
+                ))}
+              </>
             )}
           </div>
         )}
 
-        {/* Empty state */}
-        {!hasResults && pipelineState === "idle" && (
-          <div className="text-center py-12 text-gray-600">
-            <div className="text-5xl mb-4">🚀</div>
-            <p className="text-sm">Enter a DevOps request above to start the pipeline</p>
-          </div>
+        {tab === "escalations" && (
+          <EscalationQueue escalations={escalations} onResolved={refresh} />
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-white/10 py-4 px-4 text-center">
-        <p className="text-xs text-gray-600">
-          Nova DevOps Copilot · Built for the{" "}
-          <span className="text-aws-orange">Amazon Nova AI Hackathon</span>{" "}
-          · Powered by{" "}
-          <code className="text-xs bg-white/5 px-1 rounded">amazon.nova-pro-v1:0</code>
-        </p>
+      <footer className="text-center text-xs text-slate-600 py-4 border-t border-slate-800">
+        Built for the{" "}
+        <a href="https://amazonnovahackathon.devpost.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+          Amazon Nova AI Hackathon
+        </a>
+        {" "}· Amazon Nova Pro via AWS Bedrock · 4-Agent Pipeline
       </footer>
     </div>
   );
