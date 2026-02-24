@@ -1,190 +1,194 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import {
-  Activity, AlertTriangle, Bell, Bot, CheckCircle2,
-  Cpu, Loader2, Play, RefreshCw, Zap,
-} from "lucide-react";
-import AgentPipeline from "@/components/AgentPipeline";
-import EventCard from "@/components/EventCard";
-import EscalationQueue from "@/components/EscalationQueue";
-import StatCard from "@/components/StatCard";
-import { api, type DashboardSummary, type PipelineRun, type Escalation } from "@/lib/api";
-
-type Tab = "pipeline" | "escalations";
+import { api, type PipelineResult, type DashboardData, API_CONFIGURED, API_BASE } from "@/lib/api";
+import { PipelineRunButton } from "@/components/PipelineRunButton";
+import { IncidentCard } from "@/components/IncidentCard";
+import { DashboardStats } from "@/components/DashboardStats";
+import { ModeTag } from "@/components/ModeTag";
 
 export default function Home() {
-  const [tab, setTab] = useState<Tab>("pipeline");
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [latestRun, setLatestRun] = useState<PipelineRun | null>(null);
-  const [escalations, setEscalations] = useState<Escalation[]>([]);
-  const [running, setRunning] = useState(false);
-  const [activeAgent, setActiveAgent] = useState<string | undefined>();
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [pipeline, setPipeline] = useState<PipelineResult | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [apiOnline, setApiOnline] = useState<boolean | null>(null);
+  const [running, setRunning] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const fetchDashboard = useCallback(async () => {
+    if (!API_CONFIGURED) {
+      setError("NEXT_PUBLIC_API_URL is not set. Configure it in Vercel project settings.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
     try {
-      const [s, e] = await Promise.all([api.summary(), api.escalations()]);
-      setSummary(s);
-      setEscalations(e.escalations);
-      setApiOnline(true);
-    } catch {
-      setApiOnline(false);
+      const d = await api.dashboard();
+      setDashboard(d);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to reach backend");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    fetchDashboard();
+  }, [fetchDashboard]);
 
-  const runPipeline = useCallback(async () => {
-    if (running) return;
+  const handleRunPipeline = async () => {
     setRunning(true);
     setError(null);
-    setLatestRun(null);
-
-    const agents = ["monitor", "reason", "act", "escalate"];
-    for (const agent of agents) {
-      setActiveAgent(agent);
-      await new Promise(r => setTimeout(r, 600));
-    }
-
     try {
-      const run = await api.runPipeline();
-      setLatestRun(run);
-      await refresh();
+      const result = await api.runPipeline();
+      setPipeline(result);
+      setDashboard((prev) =>
+        prev
+          ? {
+              ...prev,
+              total_incidents: result.summary.total_incidents,
+              auto_remediated: result.summary.auto_remediated,
+              pending_hitl: result.summary.pending_hitl,
+              total_monthly_savings_usd: result.summary.total_monthly_savings_usd,
+              last_run: result.started_at,
+              mode: result.mode,
+              model: result.model,
+            }
+          : prev
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Pipeline failed");
+      setError(e instanceof Error ? e.message : "Pipeline run failed");
     } finally {
       setRunning(false);
-      setActiveAgent(undefined);
     }
-  }, [running, refresh]);
+  };
 
   return (
-    <div className="min-h-screen flex flex-col text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+    <main className="min-h-screen bg-gray-950 text-white">
+      {/* Header */}
+      <header className="border-b border-gray-800 bg-gray-900/80 backdrop-blur-sm sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
-              <Bot className="w-5 h-5 text-white" />
+            <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center text-lg font-bold">
+              ⚡
             </div>
             <div>
-              <h1 className="font-bold text-white leading-none">Nova DevOps Copilot</h1>
-              <p className="text-xs text-slate-400 mt-0.5">Amazon Nova Pro · 4-Agent Pipeline · AWS Bedrock</p>
+              <h1 className="text-lg font-bold text-white">Nova DevOps Copilot</h1>
+              <p className="text-xs text-gray-400">Amazon Nova AI Hackathon 2025</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 text-xs">
-              <div className={`w-2 h-2 rounded-full ${apiOnline === true ? "bg-green-400" : apiOnline === false ? "bg-red-400" : "bg-yellow-400 animate-pulse"}`} />
-              <span className="text-slate-400">{apiOnline === true ? "API online" : apiOnline === false ? "API offline (mock mode)" : "Connecting…"}</span>
-            </div>
-            {summary && (
-              <span className="text-xs text-slate-500 font-mono hidden sm:inline">
-                {summary.mode === "mock" ? "🎭 mock" : "🔴 live"} · {summary.model}
-              </span>
-            )}
-            <button
-              onClick={runPipeline}
-              disabled={running}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors shadow-lg"
-            >
-              {running ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Running…</>
-              ) : (
-                <><Play className="w-4 h-4" /> Run Pipeline</>
-              )}
-            </button>
+          <div className="flex items-center gap-4">
+            {dashboard && <ModeTag mode={dashboard.mode} model={dashboard.model} credentialsConfigured={dashboard.aws_credentials_configured} />}
+            <PipelineRunButton onClick={handleRunPipeline} loading={running} />
           </div>
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 space-y-6">
-        <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-4">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Agent Pipeline</p>
-          <AgentPipeline activeAgent={activeAgent} running={running} />
-        </div>
-
-        {summary && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <StatCard label="Total Events" value={summary.total_events} icon={Activity} color="text-blue-400" />
-            <StatCard label="Critical" value={summary.severity_breakdown.critical ?? 0} icon={AlertTriangle} color="text-red-400" />
-            <StatCard label="Pending Escalations" value={summary.pending_escalations} icon={Bell} color="text-orange-400" />
-            <StatCard label="Pipeline Runs" value={summary.total_pipeline_runs} icon={Cpu} color="text-purple-400" sub={summary.last_run ? `Last: ${new Date(summary.last_run).toLocaleTimeString()}` : undefined} />
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+        {/* Config error banner */}
+        {!API_CONFIGURED && (
+          <div className="bg-red-950 border border-red-700 rounded-lg p-4 text-red-200">
+            <p className="font-semibold">⚠️ Backend not configured</p>
+            <p className="text-sm mt-1">
+              Set <code className="bg-red-900 px-1 rounded">NEXT_PUBLIC_API_URL</code> to your
+              backend URL in Vercel project settings → Environment Variables.
+            </p>
           </div>
         )}
 
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400">
-            ⚠️ {error}
-          </div>
-        )}
-
-        <div className="flex gap-1 bg-slate-800/60 rounded-xl p-1 w-fit">
-          {(["pipeline", "escalations"] as Tab[]).map(t => (
+        {/* Runtime error banner */}
+        {error && API_CONFIGURED && (
+          <div className="bg-red-950 border border-red-700 rounded-lg p-4 text-red-200">
+            <p className="font-semibold">⚠️ Backend error</p>
+            <p className="text-sm mt-1 font-mono">{error}</p>
+            <p className="text-xs mt-2 text-red-400">
+              Backend URL: <code>{API_BASE}</code>
+            </p>
             <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors capitalize ${
-                tab === t ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200"
-              }`}
+              onClick={fetchDashboard}
+              className="mt-2 text-xs underline text-red-300 hover:text-red-100"
             >
-              {t === "escalations" ? `Escalations${escalations.length > 0 ? ` (${escalations.length})` : ""}` : "Pipeline Results"}
+              Retry
             </button>
-          ))}
-          <button
-            onClick={refresh}
-            className="ml-1 p-2 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-700 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-        </div>
-
-        {tab === "pipeline" && (
-          <div className="space-y-3">
-            {running && !latestRun && (
-              <div className="text-center py-12 text-slate-400">
-                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-blue-400" />
-                <p className="text-sm">Running 4-agent pipeline…</p>
-                <p className="text-xs text-slate-500 mt-1 capitalize">{activeAgent} agent active</p>
-              </div>
-            )}
-            {!running && !latestRun && (
-              <div className="text-center py-12 text-slate-500">
-                <Zap className="w-8 h-8 mx-auto mb-3 text-slate-600" />
-                <p className="text-sm">Click <strong className="text-slate-400">Run Pipeline</strong> to analyze your infrastructure</p>
-                <p className="text-xs mt-1">Monitor → Reason (Nova Pro) → Act → Escalate</p>
-              </div>
-            )}
-            {latestRun && (
-              <>
-                <div className="flex items-center gap-3 flex-wrap">
-                  <div className="flex items-center gap-2 text-xs text-slate-400">
-                    <CheckCircle2 className="w-4 h-4 text-green-400" />
-                    Run <span className="font-mono text-slate-300">{latestRun.run_id}</span>
-                  </div>
-                  <span className="text-xs text-slate-500">{latestRun.events_processed} events · {latestRun.auto_fixed} auto-fixed · {latestRun.escalated} escalated</span>
-                </div>
-                {latestRun.results.map((result, i) => (
-                  <EventCard key={i} result={result} />
-                ))}
-              </>
-            )}
           </div>
         )}
 
-        {tab === "escalations" && (
-          <EscalationQueue escalations={escalations} onResolved={refresh} />
+        {/* Loading */}
+        {loading && (
+          <div className="text-center py-12 text-gray-400">
+            <div className="inline-block w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mb-2" />
+            <p>Connecting to backend…</p>
+          </div>
         )}
-      </main>
 
-      <footer className="text-center text-xs text-slate-600 py-4 border-t border-slate-800">
-        Built for the{" "}
-        <a href="https://amazonnovahackathon.devpost.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-          Amazon Nova AI Hackathon
-        </a>
-        {" "}· Amazon Nova Pro via AWS Bedrock · 4-Agent Pipeline
-      </footer>
-    </div>
+        {/* Dashboard stats */}
+        {dashboard && <DashboardStats data={dashboard} />}
+
+        {/* Pipeline results */}
+        {pipeline && (
+          <section>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">Pipeline Results</h2>
+              <span className="text-xs text-gray-500">
+                Run ID: {pipeline.pipeline_run_id} · {pipeline.duration_ms}ms
+              </span>
+            </div>
+
+            {pipeline.incidents.length === 0 ? (
+              <div className="bg-green-950 border border-green-800 rounded-lg p-6 text-center text-green-300">
+                ✅ No incidents detected — infrastructure is healthy
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {pipeline.incidents.map((incident) => (
+                  <IncidentCard
+                    key={incident.incident_id}
+                    incident={incident}
+                    onApprove={(id) =>
+                      api.approveIncident(id, true).then(() =>
+                        setPipeline((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                incidents: prev.incidents.map((i) =>
+                                  i.incident_id === id ? { ...i, status: "APPROVED_HITL" } : i
+                                ),
+                              }
+                            : prev
+                        )
+                      )
+                    }
+                    onReject={(id) =>
+                      api.approveIncident(id, false).then(() =>
+                        setPipeline((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                incidents: prev.incidents.map((i) =>
+                                  i.incident_id === id ? { ...i, status: "REJECTED_HITL" } : i
+                                ),
+                              }
+                            : prev
+                        )
+                      )
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Empty state */}
+        {!loading && !error && !pipeline && dashboard && (
+          <div className="text-center py-16 text-gray-500">
+            <div className="text-5xl mb-4">🔍</div>
+            <p className="text-lg font-medium text-gray-300">Ready to scan your infrastructure</p>
+            <p className="text-sm mt-2">
+              Click <strong>Run Pipeline</strong> to start the 4-agent Nova analysis
+            </p>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
