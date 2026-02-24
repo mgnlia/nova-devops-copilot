@@ -65,14 +65,38 @@ export interface Escalation {
   resolution: string | null;
 }
 
+/**
+ * Fetch with a configurable timeout. Throws a user-friendly error if the
+ * backend is unreachable or takes too long — prevents silent empty states.
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs = 10000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timerId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timerId);
+    return response;
+  } catch (err) {
+    clearTimeout(timerId);
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Backend not responding — request timed out after 10s. Is the API online?");
+    }
+    throw new Error("Cannot reach backend — check that the API server is running.");
+  }
+}
+
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetchWithTimeout(`${API_URL}${path}`, {
     ...opts,
     headers: { "Content-Type": "application/json", ...opts?.headers },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error((err as { detail?: string }).detail || `API error ${res.status}`);
+    throw new Error((err as { detail?: string }).detail || `API error ${res.status}: ${res.statusText}`);
   }
   return res.json();
 }
