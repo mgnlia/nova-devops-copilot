@@ -23,15 +23,20 @@ export interface Analysis {
   fix_description: string;
   related_services: string[];
   estimated_resolution_time: string;
+  event_id?: string;
+  model?: string;
 }
 
-export interface PipelineResult {
+export interface PipelineResultEntry {
   event: InfraEvent;
   analysis: Analysis;
   action_taken: string;
   execution: Record<string, unknown> | null;
   escalation: Record<string, unknown> | null;
 }
+
+// Keep PipelineResult as alias for backward compat
+export type PipelineResult = PipelineResultEntry;
 
 export interface PipelineRun {
   run_id: string;
@@ -40,7 +45,7 @@ export interface PipelineRun {
   events_processed: number;
   auto_fixed: number;
   escalated: number;
-  results: PipelineResult[];
+  results: PipelineResultEntry[];
 }
 
 export interface DashboardSummary {
@@ -54,8 +59,13 @@ export interface DashboardSummary {
   mode: string;
 }
 
+/**
+ * Escalation record — matches backend EscalateAgent output.
+ * Backend returns `escalation_id` as the primary key.
+ */
 export interface Escalation {
-  id: string;
+  escalation_id: string;
+  event_id: string;
   event: InfraEvent;
   analysis: Analysis;
   status: "pending" | "approved" | "rejected" | "deferred";
@@ -72,25 +82,6 @@ export interface Escalation {
  * demo     = deterministic fallback, no Bedrock call
  */
 export type PipelineMode = "live" | "sandbox" | "demo";
-
-/**
- * Legacy Incident type — used by IncidentCard component (HITL pipeline v1).
- * Kept for backward compatibility; new code should use Escalation instead.
- */
-export interface Incident {
-  incident_id: string;
-  title: string;
-  severity: string;
-  status: string;
-  confidence_score: number;
-  root_cause: string;
-  recommended_action: string;
-  reasoning_chain: string[];
-  cross_service_signals: string[];
-  affected_resources: string[];
-  auto_remediable: boolean;
-  estimated_monthly_savings_usd: number;
-}
 
 /**
  * Fetch with a configurable timeout. Throws a user-friendly error if the
