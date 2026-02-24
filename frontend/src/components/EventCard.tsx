@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Server, DollarSign, Shield, Activity } from "lucide-react";
 import SeverityBadge from "./SeverityBadge";
-import type { PipelineResult } from "@/lib/api";
+import type { PipelineResultEntry } from "@/lib/api";
 
 const sourceIcon = (source: string) => {
   if (source === "cloudwatch")    return <Activity className="w-4 h-4 text-blue-400" />;
@@ -18,9 +18,10 @@ const actionBadge = (action: string) => {
   return <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 font-medium">👁 Monitoring</span>;
 };
 
-export default function EventCard({ result }: { result: PipelineResult }) {
+export default function EventCard({ result }: { result: PipelineResultEntry }) {
   const [open, setOpen] = useState(false);
   const { event, analysis } = result;
+  // analysis.confidence is 0.0–1.0 from ReasonAgent
   const conf = Math.round((analysis?.confidence ?? 0) * 100);
 
   const severityBorder: Record<string, string> = {
@@ -71,17 +72,19 @@ export default function EventCard({ result }: { result: PipelineResult }) {
             </div>
           </div>
 
-          <div>
-            <p className="text-xs font-semibold text-blue-400 uppercase tracking-wide mb-2">Reasoning Chain</p>
-            <ol className="space-y-1">
-              {analysis.reasoning_steps.map((step, i) => (
-                <li key={i} className="flex gap-2 text-xs text-slate-300">
-                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-mono text-[10px]">{i + 1}</span>
-                  <span>{step}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
+          {analysis.reasoning_steps && analysis.reasoning_steps.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-blue-400 uppercase tracking-wide mb-2">Reasoning Chain</p>
+              <ol className="space-y-1">
+                {analysis.reasoning_steps.map((step, i) => (
+                  <li key={i} className="flex gap-2 text-xs text-slate-300">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-mono text-[10px]">{i + 1}</span>
+                    <span>{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="bg-slate-800/60 rounded-lg p-3">
@@ -89,7 +92,9 @@ export default function EventCard({ result }: { result: PipelineResult }) {
               <p className="text-xs text-slate-300">{analysis.impact}</p>
             </div>
             <div className="bg-slate-800/60 rounded-lg p-3">
-              <p className="text-xs font-semibold text-green-400 mb-1">Remediation · {analysis.estimated_resolution_time}</p>
+              <p className="text-xs font-semibold text-green-400 mb-1">
+                Remediation{analysis.estimated_resolution_time ? ` · ${analysis.estimated_resolution_time}` : ""}
+              </p>
               <p className="text-xs text-slate-300">{analysis.fix_description}</p>
             </div>
           </div>
@@ -97,13 +102,15 @@ export default function EventCard({ result }: { result: PipelineResult }) {
           {result.execution && (
             <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
               <p className="text-xs font-semibold text-green-400 mb-1">⚡ Auto-fix executed</p>
-              <pre className="text-xs text-slate-300 whitespace-pre-wrap">{JSON.stringify(result.execution, null, 2)}</pre>
+              <pre className="text-xs text-slate-300 whitespace-pre-wrap overflow-auto">{JSON.stringify(result.execution, null, 2)}</pre>
             </div>
           )}
           {result.escalation && (
             <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
               <p className="text-xs font-semibold text-orange-400 mb-1">🔔 Escalated to HITL queue</p>
-              <p className="text-xs text-slate-300">ID: <span className="font-mono">{(result.escalation as { id?: string }).id}</span></p>
+              <p className="text-xs text-slate-300">
+                ID: <span className="font-mono">{(result.escalation as { escalation_id?: string }).escalation_id}</span>
+              </p>
             </div>
           )}
         </div>
