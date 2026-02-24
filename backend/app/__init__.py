@@ -1,1 +1,1 @@
-# Nova DevOps Copilot Backend
+_DELETED = True  # This module is deprecated — see backend/main.py
