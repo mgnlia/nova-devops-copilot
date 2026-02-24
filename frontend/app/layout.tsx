@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
-import "./globals.css";
+import "../src/app/globals.css";
 
 export const metadata: Metadata = {
-  title: "NovaOps — AI DevOps Copilot powered by Amazon Nova",
-  description: "Intelligent CI/CD automation, incident triage, and infrastructure insights powered by Amazon Nova AI.",
+  title: "Nova DevOps Copilot — Amazon Nova AI Hackathon",
+  description: "4-agent DevOps pipeline assistant powered by Amazon Nova Pro via AWS Bedrock.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className="bg-slate-950">{children}</body>
     </html>
   );
 }
