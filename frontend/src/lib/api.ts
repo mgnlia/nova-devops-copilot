@@ -1,25 +1,9 @@
-/**
- * API client for Nova DevOps Copilot backend.
- *
- * NEXT_PUBLIC_API_URL must point to the deployed backend (Railway).
- * Routes match backend main.py exactly — no /api/ prefix.
- * Types match backend agent field names exactly.
- */
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
-
-/** True only when the env var is explicitly set to a non-empty string. */
-export const API_CONFIGURED = API_BASE.length > 0;
-
-// ─── Types — aligned to backend agent response shapes ─────────────────────────
-
-export type PipelineMode = "live" | "mock";
-
-/** A single infrastructure event from MonitorAgent */
-export interface Event {
+export interface InfraEvent {
   id: string;
-  source: string;
-  severity: string;
+  source: "cloudwatch" | "cost_explorer" | "security_hub";
+  severity: "critical" | "high" | "medium" | "low";
   service: string;
   metric: string;
   value: number;
@@ -30,30 +14,25 @@ export interface Event {
   timestamp: string;
 }
 
-/** ReasonAgent analysis of one event — matches reason.py response */
 export interface Analysis {
-  event_id: string;
   root_cause: string;
-  confidence: number;           // 0.0–1.0 (NOT confidence_score)
+  confidence: number;
   impact: string;
-  reasoning_steps: string[];    // array of step strings (NOT reasoning_chain)
+  reasoning_steps: string[];
   recommended_action: "auto_fix" | "escalate" | "monitor";
   fix_description: string;
   related_services: string[];
   estimated_resolution_time: string;
-  model: string;
 }
 
-/** One result entry inside a pipeline run — matches main.py run_pipeline() */
-export interface PipelineResultEntry {
-  event: Event;
+export interface PipelineResult {
+  event: InfraEvent;
   analysis: Analysis;
   action_taken: string;
   execution: Record<string, unknown> | null;
   escalation: Record<string, unknown> | null;
 }
 
-/** Full pipeline run — matches /pipeline/run POST response */
 export interface PipelineRun {
   run_id: string;
   started_at: string;
@@ -61,11 +40,10 @@ export interface PipelineRun {
   events_processed: number;
   auto_fixed: number;
   escalated: number;
-  results: PipelineResultEntry[];
+  results: PipelineResult[];
 }
 
-/** /dashboard/summary response — matches main.py dashboard_summary() */
-export interface DashboardData {
+export interface DashboardSummary {
   total_events: number;
   severity_breakdown: Record<string, number>;
   source_breakdown: Record<string, number>;
@@ -73,103 +51,88 @@ export interface DashboardData {
   total_pipeline_runs: number;
   last_run: string | null;
   model: string;
-  mode: PipelineMode;
+  mode: string;
 }
 
-/** Escalation record from EscalateAgent — matches escalate.py */
 export interface Escalation {
-  escalation_id: string;        // "esc-alarm-001" etc
-  event_id: string;
-  event: Event;
+  id: string;
+  event: InfraEvent;
   analysis: Analysis;
-  status: "pending" | "resolved";
+  status: "pending" | "approved" | "rejected" | "deferred";
   created_at: string;
   resolved_at: string | null;
-  resolution: string | null;
   resolved_by: string | null;
+  resolution: string | null;
 }
 
-export interface HealthData {
-  ok: boolean;
-  timestamp: string;
+/**
+ * Legacy Incident type — used by IncidentCard component (HITL pipeline v1).
+ * Kept for backward compatibility; new code should use Escalation instead.
+ */
+export interface Incident {
+  incident_id: string;
+  title: string;
+  severity: string;
+  status: string;
+  confidence_score: number;
+  root_cause: string;
+  recommended_action: string;
+  reasoning_chain: string[];
+  cross_service_signals: string[];
+  affected_resources: string[];
+  auto_remediable: boolean;
+  estimated_monthly_savings_usd: number;
 }
 
-// Legacy type aliases — keep for components that import old names
-/** @deprecated Use DashboardData */
-export type DashboardSummary = DashboardData;
-/** @deprecated Use PipelineRun */
-export type PipelineResult = PipelineRun;
-
-// ─── Client ───────────────────────────────────────────────────────────────────
-
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  if (!API_CONFIGURED) {
-    throw new Error(
-      "NEXT_PUBLIC_API_URL is not configured. Set it in Vercel environment variables."
-    );
-  }
-
-  const url = `${API_BASE}${path}`;
-
-  // 10-second timeout — handles Railway cold-start delays gracefully
+/**
+ * Fetch with a configurable timeout. Throws a user-friendly error if the
+ * backend is unreachable or takes too long — prevents silent empty states.
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs = 10000
+): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
-
+  const timerId = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, {
-      ...init,
-      signal: controller.signal,
-      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    });
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`API ${res.status} at ${path}: ${text.slice(0, 200)}`);
-    }
-    return res.json() as Promise<T>;
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timerId);
+    return response;
   } catch (err) {
-    clearTimeout(timer);
+    clearTimeout(timerId);
     if (err instanceof Error && err.name === "AbortError") {
-      throw new Error("Request timed out after 10s — backend may be cold-starting, please retry");
+      throw new Error("Backend not responding — request timed out after 10s. Is the API online?");
     }
-    throw err;
+    throw new Error("Cannot reach backend — check that the API server is running.");
   }
+}
+
+async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
+  const res = await fetchWithTimeout(`${API_URL}${path}`, {
+    ...opts,
+    headers: { "Content-Type": "application/json", ...opts?.headers },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail || `API error ${res.status}: ${res.statusText}`);
+  }
+  return res.json();
 }
 
 export const api = {
-  /** GET /health */
-  health: () => apiFetch<HealthData>("/health"),
-
-  /** GET /dashboard/summary */
-  dashboard: () => apiFetch<DashboardData>("/dashboard/summary"),
-
-  /** Alias used by page.tsx */
-  summary: () => apiFetch<DashboardData>("/dashboard/summary"),
-
-  /** POST /pipeline/run — executes Monitor→Reason→Act→Escalate */
+  summary: () => apiFetch<DashboardSummary>("/dashboard/summary"),
+  events: () => apiFetch<{ events: InfraEvent[]; count: number }>("/events"),
   runPipeline: () => apiFetch<PipelineRun>("/pipeline/run", { method: "POST" }),
-
-  /** GET /pipeline/runs — recent run history */
-  pipelineRuns: () => apiFetch<{ runs: PipelineRun[]; count: number }>("/pipeline/runs"),
-
-  /** GET /escalations — pending HITL queue */
+  runs: () => apiFetch<{ runs: PipelineRun[]; count: number }>("/pipeline/runs"),
   escalations: () => apiFetch<{ escalations: Escalation[]; count: number }>("/escalations"),
-
-  /** POST /escalations/{id}/resolve */
-  resolveEscalation: (
-    id: string,
-    resolution: "approved" | "rejected" | "deferred",
-    resolvedBy = "operator"
-  ) =>
+  resolveEscalation: (id: string, resolution: string, resolved_by = "operator") =>
     apiFetch(`/escalations/${id}/resolve`, {
       method: "POST",
-      body: JSON.stringify({ resolution, resolved_by: resolvedBy }),
+      body: JSON.stringify({ resolution, resolved_by }),
     }),
-
-  /** GET /events */
-  events: () => apiFetch<{ events: Event[]; count: number }>("/events"),
+  health: () => apiFetch<{ ok: boolean }>("/health"),
 };
 
-// Legacy export
+// Legacy export for backward compat
 export const runPipelineWithFallback = api.runPipeline;
