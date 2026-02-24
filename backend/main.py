@@ -20,7 +20,8 @@ from agents import MonitorAgent, ReasonAgent, ActAgent, EscalateAgent
 load_dotenv()
 
 # ── Config ──────────────────────────────────────────────────────────────────
-USE_MOCK = os.getenv("USE_MOCK", "true").lower() == "true"
+# Default to False in production — set USE_MOCK=true only for local dev
+USE_MOCK = os.getenv("USE_MOCK", "false").lower() == "true"
 
 # ── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -30,12 +31,19 @@ app = FastAPI(
     docs_url="/docs",
 )
 
+# ── CORS — explicit origins (wildcard + credentials is invalid per CORS spec) ──
+_raw_origins = os.getenv(
+    "ALLOWED_ORIGINS",
+    "https://nova-devops-copilot.vercel.app,https://frontend-delta-drab-85.vercel.app,http://localhost:3000",
+)
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # ── Agent singletons ─────────────────────────────────────────────────────────
